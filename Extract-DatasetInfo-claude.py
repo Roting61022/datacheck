@@ -316,6 +316,42 @@ def process_one_xml(file_path: str, java_index=None):
             can_java = bool(re.fullmatch(r'[A-Z0-9]{8}', pgm or "")) and (pgm not in PGM_EXCLUDES)
             java_text = load_java_file(java_index, pgm) if (can_java and java_index) else ""
 
+            # 处理 <options> 节点（如 JXZOROG 调用 PGM/COPYCLASS）
+            options_node = step.find('m:options', ns)
+            option_pgm = ""
+            option_copyclass = ""
+            if options_node is not None:
+                for opt in options_node.findall('m:option', ns):
+                    opt_name = (opt.get('name') or "").strip().upper()
+                    opt_value = (opt.text or "").strip()
+                    if opt_name == "PGM":
+                        option_pgm = opt_value
+                    elif opt_name == "COPYCLASS":
+                        # COPYCLASS 可能是 "GKRZK023.GKRZK023"，取最后一段
+                        if '.' in opt_value:
+                            option_copyclass = opt_value.split('.')[-1]
+                        else:
+                            option_copyclass = opt_value
+
+            # 如果 options 中有 PGM，添加一个额外的行
+            if option_pgm:
+                rows.append({
+                    "JOB名": job_name,
+                    "STEP": step_name,
+                    "プログラム": option_pgm,
+                    "DD名": "",
+                    "PGM_Len": "",
+                    "COPY句": option_copyclass,
+                    "ファイル／DB名": "",
+                    "DISP1": "",
+                    "NORMAL": "",
+                    "ABNORMAL": "",
+                    "LEN": "",
+                    "FORMAT": "",
+                    "RETPD": "",
+                    "TAPE": ""
+                })
+
             for assign in step.findall('m:assign', ns):
                 # 跳过 sysout
                 if assign.find('m:sysout', ns) is not None:
