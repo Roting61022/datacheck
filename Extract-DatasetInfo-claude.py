@@ -189,6 +189,16 @@ def extract_pgm_len_from_java(java_text: str, dd_name: str):
         return m.group(1)
     return ""
 
+def is_dd_defined_in_cblfile(java_text: str, dd_name: str) -> bool:
+    """检查 DD 名称是否在 @CBLFile 中定义"""
+    if not java_text or not dd_name:
+        return False
+    pattern = re.compile(
+        r'@CBLFile\s*\([^)]*ddName\s*=\s*"' + re.escape(dd_name) + r'"',
+        re.I | re.S
+    )
+    return pattern.search(java_text) is not None
+
 def derive_expected_copy_from_dd(dd_name: str) -> str:
     """
     依据命名约定：第二个字母后加 'R'，取后续数字的前5位。
@@ -349,7 +359,9 @@ def process_one_xml(file_path: str, java_index=None):
                 copy_name = ""
                 if java_text:
                     pgm_len = extract_pgm_len_from_java(java_text, dd_name) or ""
-                    copy_name = best_copy_name(java_text, dd_name) or ""
+                    # 只有在 @CBLFile 中定义的 DD 才提取 COPY 句
+                    if is_dd_defined_in_cblfile(java_text, dd_name):
+                        copy_name = best_copy_name(java_text, dd_name) or ""
 
                 rows.append({
                     "JOB名": job_name,
