@@ -52,6 +52,16 @@ RE_HENSU_COPYNAME = re.compile(r'@Hensu\s*\([^)]*isCopy\s*=\s*true[^)]*name\s*=\
 PGM_EXCLUDES = {"SORT", "COPY", "GREEN", "SORTIN", "IEBGENER", "IDCAMS", "ICETOOL", "IEFBR14"}
 
 # ================= 工具函数 =================
+def natural_sort_key(text: str):
+    """
+    自然排序键函数：将字符串分割为文本和数字部分
+    例如：'AFAJ113X' -> ['AFAJ', 113, 'X']
+    这样可以正确排序：AFAJ112X < AFAJ113X < AFAJ114X
+    """
+    def convert(part):
+        return int(part) if part.isdigit() else part.lower()
+    return [convert(c) for c in re.split(r'(\d+)', text)]
+
 def ensure_dir(path: str):
     os.makedirs(path, exist_ok=True)
 
@@ -436,6 +446,13 @@ def main():
 
     # SHR 回填
     backfill_shr_lengths(all_rows)
+
+    # ===== 自然排序：按 JOB名 -> STEP -> DD名 =====
+    all_rows.sort(key=lambda r: (
+        natural_sort_key(r.get("JOB名") or ""),
+        natural_sort_key(r.get("STEP") or ""),
+        natural_sort_key(r.get("DD名") or "")
+    ))
 
     # ===== 输出 =====
     now = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
