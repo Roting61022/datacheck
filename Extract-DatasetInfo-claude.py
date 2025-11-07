@@ -19,6 +19,7 @@ Extract-DatasetInfo-Final-Fast.py
 import os
 import re
 import csv
+import gzip
 import datetime
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from xml.etree import ElementTree as ET
@@ -30,6 +31,7 @@ FIXED_PGM_SRC  = r"C:\Users\yuanzhe.feng\Documents\test\PGM"   # PGM 源码根�
 FIXED_COPY_SRC = r"C:\Users\yuanzhe.feng\Documents\0件\GIT\copy"  # COPY 句源码根目录（用于计算长度）
 WORKERS = os.cpu_count() or 4
 VERBOSE = True
+USE_GZIP = True  # 是否使用 GZIP 压缩输出（可减小文件大小 70-90%）
 
 # ================= COPY 长度计算相关常量 =================
 NATIONAL_CHAR_BYTES = 2  # PIC N(n)
@@ -612,6 +614,7 @@ def main():
     all_rows = []
     all_summary = []
 
+    processed = 0
     with ProcessPoolExecutor(max_workers=max(1, workers)) as exe:
         futures = {exe.submit(process_one_xml, fp, java_index): fp for fp in files}
         for fut in as_completed(futures):
@@ -620,9 +623,13 @@ def main():
                 rows, summary = fut.result()
                 all_rows.extend(rows)
                 all_summary.append(summary)
+                processed += 1
+                if VERBOSE and processed % 100 == 0:
+                    print(f"Progress: {processed}/{len(files)} files processed ({processed*100//len(files)}%)")
             except Exception as e:
                 if VERBOSE:
                     print(f"[WARN] {fp} -> {e}")
+                processed += 1
 
     # SHR 回填
     backfill_shr_lengths(all_rows)
@@ -646,14 +653,25 @@ def main():
     print(f"✅ Complete. Files: {len(files)} | Rows: {len(all_rows)}")
     print("========================================")
 
-    out_csv = os.path.join(output_path, 'dataset_detail.csv')
+    # 输出详细 CSV（支持 GZIP 压缩）
+    base_csv = 'dataset_detail.csv'
+    out_csv = os.path.join(output_path, base_csv + ('.gz' if USE_GZIP else ''))
     headers = ["JOB名","STEP","プログラム","DD名","PGM_Len","COPY句","copy_Len","ファイル／DB名","DISP1","NORMAL","ABNORMAL","LEN","FORMAT","RETPD","TAPE"]
-    with open(out_csv, 'w', newline='', encoding='utf-8') as fw:
-        w = csv.DictWriter(fw, fieldnames=headers, lineterminator='\n')
-        w.writeheader()
-        w.writerows(all_rows)
+
+    if USE_GZIP:
+        with gzip.open(out_csv, 'wt', newline='', encoding='utf-8') as fw:
+            w = csv.DictWriter(fw, fieldnames=headers, lineterminator='\n')
+            w.writeheader()
+            w.writerows(all_rows)
+    else:
+        with open(out_csv, 'w', newline='', encoding='utf-8') as fw:
+            w = csv.DictWriter(fw, fieldnames=headers, lineterminator='\n')
+            w.writeheader()
+            w.writerows(all_rows)
+
     if VERBOSE:
-        print(f"Detail CSV  : {out_csv}")
+        file_size = os.path.getsize(out_csv) / (1024 * 1024)  # MB
+        print(f"Detail CSV  : {out_csv} ({file_size:.2f} MB)")
 
     stats_csv = os.path.join(output_path, 'dataset_statistics.csv')
     with open(stats_csv, 'w', newline='', encoding='utf-8') as fw:
