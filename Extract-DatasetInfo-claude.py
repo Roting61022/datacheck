@@ -162,9 +162,17 @@ def parse_jcl_struct(cdata_text: str):
             length = ""
             fmt = ""
             m_len = RE_LRECL.search(window)
-            if m_len: length = m_len.group(1)
+            if m_len:
+                length = m_len.group(1)
             m_fmt = RE_RECFM.search(window)
-            if m_fmt: fmt = m_fmt.group(1).upper()
+            if m_fmt:
+                fmt = m_fmt.group(1).upper()
+
+            # DEBUG: 打印 SORTOUT 的 window 内容
+            if dd == "SORTOUT" and VERBOSE and not length:
+                print(f"\n[DEBUG-WINDOW] DD={dd}, window content:")
+                print(f"[DEBUG-WINDOW] {repr(window[:500])}")  # 只显示前500字符
+                print(f"[DEBUG-WINDOW] LRECL found: {bool(m_len)}, RECFM found: {bool(m_fmt)}")
 
             retpd = ""
             m_ret = RE_LABEL_RETPD.search(window)
