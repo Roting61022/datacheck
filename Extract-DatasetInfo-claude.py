@@ -534,6 +534,16 @@ def process_one_xml(file_path: str, java_index=None):
                             j_hit = info
                             break
 
+                # DEBUG: 临时调试（检查 SORTOUT 的情况）
+                if dd_name == "SORTOUT" and VERBOSE:
+                    print(f"\n[DEBUG] Job: {job_name}, Step: {step_name}, DD: {dd_name}")
+                    print(f"[DEBUG] JCL steps available: {list(jcl_struct.keys())}")
+                    print(f"[DEBUG] JCL DDs in this step: {list(j_dds.keys())}")
+                    if j_hit:
+                        print(f"[DEBUG] JCL hit found: len={j_hit.get('len')}, fmt={j_hit.get('fmt')}")
+                    else:
+                        print(f"[DEBUG] JCL hit NOT found!")
+
                 disp1   = (disp or (j_hit.get("disp1") if j_hit else "") or "").upper()
                 normal  = (normal or (j_hit.get("normal") if j_hit else "") or "").upper()
                 abnormal= (abnormal or (j_hit.get("abnormal") if j_hit else "") or "").upper()
