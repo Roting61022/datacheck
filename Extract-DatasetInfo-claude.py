@@ -179,12 +179,6 @@ def parse_jcl_struct(cdata_text: str):
             if m_fmt:
                 fmt = m_fmt.group(1).upper()
 
-            # DEBUG: 打印 SORTOUT 的 window 内容
-            if dd == "SORTOUT" and VERBOSE and not length:
-                print(f"\n[DEBUG-WINDOW] DD={dd}, window content:")
-                print(f"[DEBUG-WINDOW] {repr(window[:500])}")  # 只显示前500字符
-                print(f"[DEBUG-WINDOW] LRECL found: {bool(m_len)}, RECFM found: {bool(m_fmt)}")
-
             retpd = ""
             m_ret = RE_LABEL_RETPD.search(window)
             if m_ret: retpd = m_ret.group(1)
@@ -552,16 +546,6 @@ def process_one_xml(file_path: str, java_index=None):
                         if info.get("dsn", "") == dsn:
                             j_hit = info
                             break
-
-                # DEBUG: 临时调试（检查 SORTOUT 的情况）
-                if dd_name == "SORTOUT" and VERBOSE:
-                    print(f"\n[DEBUG] Job: {job_name}, Step: {step_name}, DD: {dd_name}")
-                    print(f"[DEBUG] JCL steps available: {list(jcl_struct.keys())}")
-                    print(f"[DEBUG] JCL DDs in this step: {list(j_dds.keys())}")
-                    if j_hit:
-                        print(f"[DEBUG] JCL hit found: len={j_hit.get('len')}, fmt={j_hit.get('fmt')}")
-                    else:
-                        print(f"[DEBUG] JCL hit NOT found!")
 
                 disp1   = (disp or (j_hit.get("disp1") if j_hit else "") or "").upper()
                 normal  = (normal or (j_hit.get("normal") if j_hit else "") or "").upper()
