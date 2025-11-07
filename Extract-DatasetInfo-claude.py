@@ -124,9 +124,23 @@ def parse_jcl_struct(cdata_text: str):
         m_dd = RE_DD_HEAD.match(ln)
         if m_dd and current_step:
             dd = m_dd.group('dd')
+            # 读取当前行及所有后续延续行（以 // 开头且有空格缩进）
             window = ln
-            if idx + 1 < len(lines): window += "\n" + lines[idx+1]
-            if idx + 2 < len(lines): window += "\n" + lines[idx+2]
+            j = idx + 1
+            while j < len(lines):
+                next_line = lines[j]
+                # JCL 延续行：以 // 开头 + 后续是空格（不是新的 DD 或 EXEC）
+                if next_line.strip() and next_line.startswith('//'):
+                    # 检查是否是延续行（//后面是空格）而不是新语句
+                    if len(next_line) > 2 and next_line[2] == ' ':
+                        window += "\n" + next_line
+                        j += 1
+                    else:
+                        break  # 新的 DD/EXEC 语句
+                elif not next_line.strip():
+                    j += 1  # 跳过空行
+                else:
+                    break
 
             dsn = ""
             m_dsn = RE_DSN.search(window)
