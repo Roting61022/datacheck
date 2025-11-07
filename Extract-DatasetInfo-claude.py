@@ -25,9 +25,9 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 from xml.etree import ElementTree as ET
 
 # ================= 固定路径（可按需改/注释） =================
-FIXED_INPUT    = r"C:\Users\yuanzhe.feng\Documents\test\JOB"
-FIXED_OUTPUT   = r"C:\Users\yuanzhe.feng\Documents\test\test_result"
-FIXED_PGM_SRC  = r"C:\Users\yuanzhe.feng\Documents\test\PGM"   # PGM 源码根目录（如不需要，置空 "" 或前面加 # 注释）
+FIXED_INPUT    = r"C:\Users\yuanzhe.feng\Documents\0件\#87510対応_パラメータファイル修正\hitachihost_job_r4.3\jobs\jobs_xml"
+FIXED_OUTPUT   = r"C:\Users\yuanzhe.feng\Documents\0件\GIT\test_result"
+FIXED_PGM_SRC  = r"C:\Users\yuanzhe.feng\Documents\0件\GIT\PGM"   # PGM 源码根目录（如不需要，置空 "" 或前面加 # 注释）
 FIXED_COPY_SRC = r"C:\Users\yuanzhe.feng\Documents\0件\GIT\copy"  # COPY 句源码根目录（用于计算长度）
 WORKERS = os.cpu_count() or 4
 VERBOSE = True
