@@ -7,10 +7,13 @@ Extract-DatasetInfo-Final-Fast.py
 - 从 PGM 源码（固定路径）解析：
     * PGM_Len: 匹配 ddName 的 @CBLFile(... recLen=NNN)
     * COPY句 : 先数字包含匹配，再按约定 <前两字母>+'R'+<数字前5位> 命中（例：FA781039→FAR78103）
+    * copy_Len: 从 COPY 源码计算总字节长度（基于 @Hensu 的 pic/usage）
+- 支持 <options> 节点的 PGM/COPYCLASS 提取（如 JXZOROG）
+- 自然排序：按 JOB名 -> STEP -> DD名
 - 并行处理（多进程）
 
 输出列顺序：
-  JOB名, STEP, プログラム, DD名, PGM_Len, COPY句, ファイル／DB名, DISP1, NORMAL, ABNORMAL, LEN, FORMAT, RETPD, TAPE
+  JOB名, STEP, プログラム, DD名, PGM_Len, COPY句, copy_Len, ファイル／DB名, DISP1, NORMAL, ABNORMAL, LEN, FORMAT, RETPD, TAPE
 """
 
 import os
@@ -21,11 +24,16 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 from xml.etree import ElementTree as ET
 
 # ================= 固定路径（可按需改/注释） =================
-FIXED_INPUT   = r"C:\Users\yuanzhe.feng\Documents\test\JOB"
-FIXED_OUTPUT  = r"C:\Users\yuanzhe.feng\Documents\test\test_result"
-FIXED_PGM_SRC = r"C:\Users\yuanzhe.feng\Documents\test\PGM"   # PGM 源码根目录（如不需要，置空 "" 或前面加 # 注释）
+FIXED_INPUT    = r"C:\Users\yuanzhe.feng\Documents\test\JOB"
+FIXED_OUTPUT   = r"C:\Users\yuanzhe.feng\Documents\test\test_result"
+FIXED_PGM_SRC  = r"C:\Users\yuanzhe.feng\Documents\test\PGM"   # PGM 源码根目录（如不需要，置空 "" 或前面加 # 注释）
+FIXED_COPY_SRC = r"C:\Users\yuanzhe.feng\Documents\0件\GIT\copy"  # COPY 句源码根目录（用于计算长度）
 WORKERS = os.cpu_count() or 4
 VERBOSE = True
+
+# ================= COPY 长度计算相关常量 =================
+NATIONAL_CHAR_BYTES = 2  # PIC N(n)
+DBCS_CHAR_BYTES = 2      # PIC G(n)
 
 # ================= 正则 =================
 RE_EXEC        = re.compile(r'^\s*//\s*(?P<step>[A-Z0-9$#@]+)\s+EXEC\b.*?\bPGM\s*=\s*(?P<pgm>[A-Z0-9_]+)', re.I)
@@ -50,6 +58,17 @@ def RE_CBLFILE_FOR_DD(dd):
 RE_HENSU_COPYNAME = re.compile(r'@Hensu\s*\([^)]*isCopy\s*=\s*true[^)]*name\s*=\s*"([A-Za-z0-9_]+)"', re.I | re.S)
 
 PGM_EXCLUDES = {"SORT", "COPY", "GREEN", "SORTIN", "IEBGENER", "IDCAMS", "ICETOOL", "IEFBR14"}
+
+# ================= COPY 长度计算正则 =================
+# 从 @Hensu 注解中提取 pic 和 usage
+RE_HENSU_PIC = re.compile(
+    r'@Hensu\s*\([^)]*\bpic\s*=\s*"(?P<pic>[^"]+)"(?:[^)]*\busage\s*=\s*"(?P<usage>[^"]+)")?',
+    re.I | re.S
+)
+# PIC 通用格式：X/9/N/G(n)
+RE_PIC_GENERAL = re.compile(r'^\s*(S)?\s*([Xx9NnGg])\s*\(\s*(\d+)\s*\)\s*$')
+# PIC 9(n)V9(m) 格式
+RE_PIC_9V = re.compile(r'^\s*(S)?\s*9\s*\(\s*(\d+)\s*\)\s*(?:V\s*9\s*\(\s*(\d+)\s*\))?\s*$', re.I)
 
 # ================= 工具函数 =================
 def natural_sort_key(text: str):
@@ -172,6 +191,116 @@ def choose_xml_pgm(step_elem):
         if v:
             return v.strip()
     return ""
+
+# ===== COPY 长度计算函数 =====
+def split_pic_and_usage(pic_token: str) -> tuple:
+    """分离 PIC 和内联的 USAGE（如 'S9(5) COMP-3'）"""
+    t = pic_token.strip()
+    if RE_PIC_GENERAL.match(t) or RE_PIC_9V.match(t):
+        return t, ""
+    parts = t.split()
+    if len(parts) >= 2:
+        for k in range(len(parts), 0, -1):
+            pic_try = " ".join(parts[:k]).strip()
+            rest = " ".join(parts[k:]).strip()
+            if RE_PIC_GENERAL.match(pic_try) or RE_PIC_9V.match(pic_try):
+                return pic_try, rest.upper()
+    return t, ""
+
+def parse_pic_core(pic_core: str):
+    """解析 PIC，返回 (signed, kind, total_digits, dec_digits)"""
+    t = pic_core.strip()
+    m = RE_PIC_GENERAL.match(t)
+    if m:
+        signed = bool(m.group(1))
+        kind = m.group(2).upper()
+        n = int(m.group(3))
+        return signed, kind, n, 0
+    m2 = RE_PIC_9V.match(t)
+    if m2:
+        signed = bool(m2.group(1))
+        kind = '9'
+        int_digits = int(m2.group(2))
+        dec_digits = int(m2.group(3)) if m2.group(3) else 0
+        return signed, kind, int_digits + dec_digits, dec_digits
+    raise ValueError(f"Unsupported PIC: {pic_core}")
+
+def bytes_binary(d: int) -> int:
+    """二进制（COMP/COMP-4/COMP-5）字节数"""
+    if d <= 4: return 2
+    if d <= 9: return 4
+    if d <= 18: return 8
+    raise ValueError(f"Binary COMP digits too large: {d}")
+
+def bytes_packed(d: int) -> int:
+    """COMP-3（Packed Decimal）字节数"""
+    return (d + 2) // 2
+
+def size_for_pic(pic_token: str, usage_token: str = "") -> int:
+    """计算 PIC 字段的字节长度"""
+    pic_core, inline_usage = split_pic_and_usage(pic_token)
+    signed, kind, n_total, dec = parse_pic_core(pic_core)
+    u = (usage_token or "").strip().upper()
+    if not u:
+        u = inline_usage
+
+    if kind == 'X':
+        return n_total
+    if kind == 'N':
+        return n_total * NATIONAL_CHAR_BYTES
+    if kind == 'G':
+        return n_total * DBCS_CHAR_BYTES
+    if kind == '9':
+        if u in ('', 'DISPLAY'):
+            return n_total
+        if u in ('COMP', 'BINARY', 'COMP-5', 'COMP-4'):
+            return bytes_binary(n_total)
+        if u in ('COMP-3', 'PACK', 'PACKED-DECIMAL', 'PACKED'):
+            return bytes_packed(n_total)
+        return n_total
+    raise ValueError(f"Unsupported kind: {kind}")
+
+def calculate_copy_length(java_text: str) -> int:
+    """从 COPY 的 Java 文件中计算总长度"""
+    if not java_text:
+        return 0
+    total = 0
+    for m in RE_HENSU_PIC.finditer(java_text):
+        pic = m.group('pic').strip()
+        usage = (m.group('usage') or '').strip()
+        try:
+            sz = size_for_pic(pic, usage)
+            total += sz
+        except Exception:
+            # 忽略无法解析的字段
+            pass
+    return total
+
+def build_copy_index(src_root: str):
+    """构建 COPY 句索引：{copy名.lower(): 文件路径}"""
+    index = {}
+    if not src_root or not os.path.isdir(src_root):
+        return index
+    for dirpath, _, filenames in os.walk(src_root):
+        for fn in filenames:
+            if fn.lower().endswith(".java"):
+                copy_name = fn[:-5].lower()  # 去掉 .java
+                index[copy_name] = os.path.join(dirpath, fn)
+    return index
+
+def get_copy_length(copy_index: dict, copy_name: str) -> str:
+    """获取 COPY 句的长度"""
+    if not copy_name or not copy_index:
+        return ""
+    path = copy_index.get(copy_name.lower())
+    if not path or not os.path.isfile(path):
+        return ""
+    try:
+        java_text = read_text(path)
+        length = calculate_copy_length(java_text)
+        return str(length) if length > 0 else ""
+    except Exception:
+        return ""
 
 # ===== Java 索引/解析 =====
 def build_java_index(src_root: str):
@@ -342,6 +471,7 @@ def process_one_xml(file_path: str, java_index=None):
                     "DD名": "",
                     "PGM_Len": "",
                     "COPY句": option_copyclass,
+                    "copy_Len": "",  # 稍后统一填充
                     "ファイル／DB名": "",
                     "DISP1": "",
                     "NORMAL": "",
@@ -416,6 +546,7 @@ def process_one_xml(file_path: str, java_index=None):
                     "DD名": dd_name,
                     "PGM_Len": pgm_len,
                     "COPY句": copy_name,
+                    "copy_Len": "",  # 稍后统一填充
                     "ファイル／DB名": dsn,
                     "DISP1": disp1,
                     "NORMAL": normal,
@@ -444,6 +575,13 @@ def backfill_shr_lengths(all_rows):
             if dsn in new_len_map:
                 r["LEN"] = str(new_len_map[dsn])
 
+def fill_copy_lengths(all_rows, copy_index):
+    """填充所有行的 copy_Len"""
+    for r in all_rows:
+        copy_name = r.get("COPY句") or ""
+        if copy_name:
+            r["copy_Len"] = get_copy_length(copy_index, copy_name)
+
 def main():
     input_path  = FIXED_INPUT
     output_path = FIXED_OUTPUT
@@ -464,6 +602,12 @@ def main():
     java_index = build_java_index(pgm_src_root) if pgm_src_root else {}
     if VERBOSE and pgm_src_root:
         print(f"✅ Java sources indexed: {len(java_index)} files under: {pgm_src_root}")
+
+    # 构建 COPY 索引（用于计算长度）
+    copy_src_root = FIXED_COPY_SRC
+    copy_index = build_copy_index(copy_src_root) if copy_src_root else {}
+    if VERBOSE and copy_src_root:
+        print(f"✅ COPY sources indexed: {len(copy_index)} files under: {copy_src_root}")
 
     all_rows = []
     all_summary = []
@@ -490,6 +634,12 @@ def main():
         natural_sort_key(r.get("DD名") or "")
     ))
 
+    # 填充 COPY 长度
+    if copy_index:
+        fill_copy_lengths(all_rows, copy_index)
+        if VERBOSE:
+            print(f"✅ COPY lengths calculated")
+
     # ===== 输出 =====
     now = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     print("\n========================================")
@@ -497,7 +647,7 @@ def main():
     print("========================================")
 
     out_csv = os.path.join(output_path, 'dataset_detail.csv')
-    headers = ["JOB名","STEP","プログラム","DD名","PGM_Len","COPY句","ファイル／DB名","DISP1","NORMAL","ABNORMAL","LEN","FORMAT","RETPD","TAPE"]
+    headers = ["JOB名","STEP","プログラム","DD名","PGM_Len","COPY句","copy_Len","ファイル／DB名","DISP1","NORMAL","ABNORMAL","LEN","FORMAT","RETPD","TAPE"]
     with open(out_csv, 'w', newline='', encoding='utf-8') as fw:
         w = csv.DictWriter(fw, fieldnames=headers, lineterminator='\n')
         w.writeheader()
