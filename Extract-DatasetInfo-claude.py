@@ -290,11 +290,20 @@ def size_for_pic(pic_token: str, usage_token: str = "") -> int:
     raise ValueError(f"Unsupported kind: {kind}")
 
 def calculate_copy_length(java_text: str) -> int:
-    """从 COPY 的 Java 文件中计算总长度"""
+    """从 COPY 的 Java 文件中计算总长度（跳过注释行）"""
     if not java_text:
         return 0
     total = 0
     for m in RE_HENSU_PIC.finditer(java_text):
+        # 检查是否是注释行
+        start_pos = m.start()
+        line_start = java_text.rfind('\n', 0, start_pos) + 1
+        line_prefix = java_text[line_start:start_pos].strip()
+
+        # 跳过注释行（以 // 开头的行）
+        if line_prefix.startswith('//'):
+            continue
+
         pic = m.group('pic').strip()
         usage = (m.group('usage') or '').strip()
         try:
