@@ -491,26 +491,6 @@ def process_one_xml(file_path: str, java_index=None):
                         else:
                             option_copyclass = opt_value
 
-            # 如果 options 中有 PGM，添加一个额外的行
-            if option_pgm:
-                rows.append({
-                    "JOB名": job_name,
-                    "STEP": step_name,
-                    "プログラム": option_pgm,
-                    "DD名": "",
-                    "PGM_Len": "",
-                    "COPY句": option_copyclass,
-                    "copy_Len": "",  # 稍后统一填充
-                    "ファイル／DB名": "",
-                    "DISP1": "",
-                    "NORMAL": "",
-                    "ABNORMAL": "",
-                    "LEN": "",
-                    "FORMAT": "",
-                    "RETPD": "",
-                    "TAPE": ""
-                })
-
             for assign in step.findall('m:assign', ns):
                 # 跳过 sysout
                 if assign.find('m:sysout', ns) is not None:
@@ -568,13 +548,22 @@ def process_one_xml(file_path: str, java_index=None):
                     if is_dd_defined_in_cblfile(java_text, dd_name):
                         copy_name = best_copy_name(java_text, dd_name) or ""
 
+                # 合并 options 中的信息
+                # 如果 options 中有 PGM，组合成 "实际PGM/工具程序" 格式
+                final_pgm = pgm
+                if option_pgm:
+                    final_pgm = f"{option_pgm}/{pgm}" if pgm else option_pgm
+
+                # 如果 options 中有 COPYCLASS，优先使用它
+                final_copy = option_copyclass if option_copyclass else copy_name
+
                 rows.append({
                     "JOB名": job_name,
                     "STEP": step_name,
-                    "プログラム": pgm,
+                    "プログラム": final_pgm,
                     "DD名": dd_name,
                     "PGM_Len": pgm_len,
-                    "COPY句": copy_name,
+                    "COPY句": final_copy,
                     "copy_Len": "",  # 稍后统一填充
                     "ファイル／DB名": dsn,
                     "DISP1": disp1,
