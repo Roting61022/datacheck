@@ -549,13 +549,29 @@ def process_one_xml(file_path: str, java_index=None):
                         copy_name = best_copy_name(java_text, dd_name) or ""
 
                 # 合并 options 中的信息
-                # 如果 options 中有 PGM，组合成 "实际PGM/工具程序" 格式
+                # 判断是否为参数文件（PRMLIB、PARM、PROC等）
+                is_param_file = False
+                if dsn:
+                    dsn_upper = dsn.upper()
+                    param_keywords = ['PRMLIB', 'PARM', 'PROC', 'CONFIG', 'SYSIN']
+                    is_param_file = any(keyword in dsn_upper for keyword in param_keywords)
+
+                # 如果 options 中有 PGM：
+                # - 参数文件：只显示工具程序（如 JXZOROG）
+                # - 主数据文件：显示 "实际PGM/工具程序"（如 FAZBB550/JXZOROG）
                 final_pgm = pgm
                 if option_pgm:
-                    final_pgm = f"{option_pgm}/{pgm}" if pgm else option_pgm
+                    if is_param_file:
+                        # 参数文件保持工具程序名
+                        final_pgm = pgm if pgm else option_pgm
+                    else:
+                        # 主文件合并显示
+                        final_pgm = f"{option_pgm}/{pgm}" if pgm else option_pgm
 
-                # 如果 options 中有 COPYCLASS，优先使用它
-                final_copy = option_copyclass if option_copyclass else copy_name
+                # 如果 options 中有 COPYCLASS，优先使用它（仅对非参数文件）
+                final_copy = copy_name
+                if option_copyclass and not is_param_file:
+                    final_copy = option_copyclass
 
                 rows.append({
                     "JOB名": job_name,
